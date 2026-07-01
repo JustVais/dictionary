@@ -9,10 +9,10 @@ A vocabulary-learning app (word lists, flashcards, spaced repetition) built as a
 |---|---|---|
 | Framework | **Next.js** (App Router) | React-based, first-class Vercel support (zero-config deploys, edge/serverless functions), file-based routing, API routes for backend logic. |
 | Language | **TypeScript** | Type safety across frontend, API routes, and DB schema. |
-| Styling | **Tailwind CSS** + **shadcn/ui** | Fast to build clean UI; shadcn gives accessible, unstyled-by-default components you own the code for. |
-| PWA | **Serwist** (successor to next-pwa, actively maintained) | Service worker + manifest generation for installability, offline caching of word lists. |
+| Styling | **Tailwind CSS** + **shadcn/ui** | Fast to build clean UI; shadcn gives accessible, unstyled-by-default components you own the code for. Note: this shadcn project's default style (`base-nova`) is built on **Base UI** (`@base-ui/react`), not Radix — component internals use the `render` prop instead of `asChild`/`Slot`. |
+| PWA | **Serwist** (successor to next-pwa, actively maintained) | Service worker + manifest generation for installability, offline caching of word lists. Requires building with `next build --webpack` since Serwist's Next.js plugin needs webpack, while Next 16 defaults to Turbopack. |
 | Database | **Neon Postgres** (via Vercel Marketplace integration) | Serverless Postgres, autoscaling, branching for preview environments per PR. |
-| DB Driver | **`@neondatabase/serverless`** | HTTP/WebSocket driver designed for serverless/edge — avoids TCP connection limits that break standard `pg` on Vercel functions. |
+| DB Driver | **`pg`** (node-postgres) via `drizzle-orm/node-postgres` | Used for both local Docker and Neon — Neon's Vercel-injected `DATABASE_URL` already points at a pooled connection (PgBouncer via Neon's proxy), solving the same serverless-connection-limit problem `@neondatabase/serverless` exists for, so a single driver/code path works identically in both environments. |
 | ORM | **Drizzle ORM** | Lightweight, SQL-like, great TS inference, fast cold starts (important for serverless functions), first-class Neon support. Prisma is a fine alternative but has heavier cold-start overhead. |
 | Auth | **Auth.js (NextAuth v5)** with **Credentials provider** | Login + password auth; Auth.js handles sessions/JWT, Credentials provider verifies against your own `users` table. |
 | Password hashing | **bcrypt** (or `argon2`) | Never store plaintext passwords; bcrypt via `bcryptjs` works fine in Node runtime (avoid Edge runtime for the auth route since bcrypt needs Node APIs). |
@@ -60,29 +60,28 @@ AUTH_SECRET=<generate with `openssl rand -base64 32`>
 ```
 
 - `docker compose up -d` to start the local DB, `docker compose down` to stop it.
-- Because Drizzle + `pg`/`@neondatabase/serverless` both speak standard Postgres wire protocol, the same schema/migrations apply to local Docker and Neon — only the connection string changes per environment.
+- Because `pg` speaks the standard Postgres wire protocol, the same schema/migrations apply to local Docker and Neon — only the connection string changes per environment.
 - Use `drizzle-kit push` or `drizzle-kit migrate` locally against Docker, then apply the same migrations to Neon in CI/deploy.
 
-## Suggested Repo Structure
+## Actual Repo Structure
 ```
-/app                 # Next.js App Router pages & layouts
-/app/api             # API routes (if not using server actions exclusively)
-/components          # React components (shadcn-based)
-/lib
-  /db                # Drizzle schema, client, migrations
-  /srs               # spaced-repetition algorithm
-/public
-  manifest.json
-  icons/
-/drizzle             # generated migrations
+src/
+  auth.ts, proxy.ts       # Auth.js config, Next 16 proxy.ts (renamed from middleware.ts)
+  db/                     # Drizzle schema, client, migration runner
+  lib/                    # auth-guard, validation, srs (SM-2), dictionary client, password hashing, stats
+  hooks/use-swipe.ts       # swipe-vs-tap gesture hook for review cards
+  components/
+    ui/                    # shadcn/Base UI primitives
+    layout/                # header, bottom tab bar, app shell
+    vocabulary/, cards/, translate/, stats/
+  app/
+    manifest.ts, sw.ts (at src/sw.ts)
+    api/auth/[...nextauth]/route.ts
+    (auth)/login, signup     # bare layout, no nav
+    (app)/vocabulary, cards, translate, stats   # AppShell layout, auth-gated
+drizzle/                  # generated SQL migrations
+public/icons/             # PWA icons (currently placeholders — swap before shipping)
 ```
 
-## Suggested Order of Setup
-1. `npx create-next-app@latest` (TypeScript, App Router, Tailwind)
-2. Add `docker-compose.yml` for local Postgres, `docker compose up -d`
-3. Set up Drizzle ORM + `drizzle-kit` + initial schema (users, words, decks, review_logs) against local Docker DB
-4. Add Neon Postgres via Vercel Marketplace → auto-adds `DATABASE_URL` env var for preview/prod
-5. Add Auth.js with Credentials provider (bcrypt-hashed passwords) + Drizzle adapter
-6. Add Serwist for PWA (manifest + service worker + offline caching strategy)
-7. Build core flows: sign up / log in → add word → review (SRS) → stats
-8. Deploy to Vercel, verify PWA installability + offline behavior on a real device
+## v1 Build Status
+All 4 sections (Vocabulary, Cards with SM-2 spaced repetition, Translate, Stats), login/password auth, the responsive shell, and PWA/Serwist support are implemented — see `FUNCTIONALITY.md` for the full behavior spec. Deployment to Vercel + Neon has not been done yet; local development runs against the Docker Postgres container described above.
