@@ -12,6 +12,7 @@ import { deleteWord } from "@/app/(app)/vocabulary/actions";
 export interface WordRow extends EditableWord {
   rememberedCount: number;
   notRememberedCount: number;
+  forms: string[];
 }
 
 export function WordList({
@@ -67,6 +68,11 @@ export function WordList({
                     {word.definition && (
                       <p className="text-sm text-muted-foreground">
                         {word.definition}
+                      </p>
+                    )}
+                    {word.forms.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {[word.text, ...word.forms].join(" · ")}
                       </p>
                     )}
                   </div>

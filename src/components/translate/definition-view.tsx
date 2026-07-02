@@ -4,6 +4,7 @@ export interface DefinitionViewProps {
   partOfSpeech?: string | null;
   definition?: string | null;
   example?: string | null;
+  forms?: string[];
 }
 
 export function DefinitionView({
@@ -12,6 +13,7 @@ export function DefinitionView({
   partOfSpeech,
   definition,
   example,
+  forms,
 }: DefinitionViewProps) {
   return (
     <div className="grid gap-2">
@@ -33,6 +35,11 @@ export function DefinitionView({
       )}
       {example && (
         <p className="text-sm text-muted-foreground italic">“{example}”</p>
+      )}
+      {forms && forms.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Forms: {[word, ...forms].join(" · ")}
+        </p>
       )}
     </div>
   );

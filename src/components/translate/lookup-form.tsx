@@ -16,8 +16,10 @@ import { DefinitionView } from "./definition-view";
 import {
   lookupWordAction,
   addLookedUpWordToFolder,
+  type LookupActionResult,
 } from "@/app/(app)/translate/actions";
-import type { WordDetails } from "@/lib/dictionary";
+
+type LookupSuccess = Extract<LookupActionResult, { ok: true }>;
 
 export function LookupForm({
   folders,
@@ -25,7 +27,7 @@ export function LookupForm({
   folders: { id: string; name: string }[];
 }) {
   const [query, setQuery] = useState("");
-  const [result, setResult] = useState<WordDetails | null>(null);
+  const [result, setResult] = useState<LookupSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [folderId, setFolderId] = useState<string | undefined>(folders[0]?.id);
   const [pending, startTransition] = useTransition();
@@ -41,7 +43,7 @@ export function LookupForm({
         setResult(null);
         return;
       }
-      setResult(res.details);
+      setResult(res);
     });
   }
 
@@ -49,8 +51,8 @@ export function LookupForm({
     if (!result || !folderId) return;
     startSaveTransition(async () => {
       try {
-        await addLookedUpWordToFolder(folderId, result);
-        toast.success(`Added "${result.word}" to folder.`);
+        await addLookedUpWordToFolder(folderId, result.details);
+        toast.success(`Added "${result.details.word}" to folder.`);
       } catch {
         toast.error("Failed to add word.");
       }
@@ -64,7 +66,7 @@ export function LookupForm({
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Enter an English word"
+          placeholder="Enter a word in English or Russian"
           required
         />
         <Button type="submit" disabled={pending}>
@@ -76,12 +78,18 @@ export function LookupForm({
 
       {result && (
         <Card className="grid gap-4 p-4">
+          {result.sourceWord && (
+            <p className="text-sm text-muted-foreground">
+              {result.sourceWord} →
+            </p>
+          )}
           <DefinitionView
-            word={result.word}
-            phoneticText={result.phoneticText}
-            partOfSpeech={result.partOfSpeech}
-            definition={result.definition}
-            example={result.example}
+            word={result.details.word}
+            phoneticText={result.details.phoneticText}
+            partOfSpeech={result.details.partOfSpeech}
+            definition={result.details.definition}
+            example={result.details.example}
+            forms={result.forms}
           />
           {folders.length > 0 && (
             <div className="flex items-center gap-2">

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { folders, words } from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
+import { getWordForms } from "@/lib/word-forms";
 import { WordList } from "@/components/vocabulary/word-list";
 
 export default async function FolderPage({
@@ -26,6 +27,7 @@ export default async function FolderPage({
       text: words.text,
       definition: words.definition,
       example: words.example,
+      partOfSpeech: words.partOfSpeech,
       rememberedCount: words.rememberedCount,
       notRememberedCount: words.notRememberedCount,
     })
@@ -33,7 +35,16 @@ export default async function FolderPage({
     .where(eq(words.folderId, folderId))
     .orderBy(words.createdAt);
 
+  const wordsWithForms = wordRows.map((word) => ({
+    ...word,
+    forms: getWordForms(word.text, word.partOfSpeech),
+  }));
+
   return (
-    <WordList folderId={folder.id} folderName={folder.name} words={wordRows} />
+    <WordList
+      folderId={folder.id}
+      folderName={folder.name}
+      words={wordsWithForms}
+    />
   );
 }

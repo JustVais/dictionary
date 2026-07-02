@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { words, reviewLogs } from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
 import { applyFsrs, isRemembered, type SrsGrade } from "@/lib/srs";
+import { getWordForms } from "@/lib/word-forms";
 
 export interface ReviewWord {
   id: string;
@@ -13,6 +14,7 @@ export interface ReviewWord {
   partOfSpeech: string | null;
   example: string | null;
   phoneticText: string | null;
+  forms: string[];
   fsrsStability: number;
   fsrsDifficulty: number;
   fsrsState: number;
@@ -66,6 +68,10 @@ export async function getDueWords(
       : eq(words.userId, user.id);
   const dueClause = and(scopeClause, lte(words.nextReviewAt, now));
 
+  const withForms = <T extends { text: string; partOfSpeech: string | null }>(
+    rows: T[]
+  ) => rows.map((row) => ({ ...row, forms: getWordForms(row.text, row.partOfSpeech) }));
+
   const due = await db
     .select(wordColumns)
     .from(words)
@@ -79,7 +85,7 @@ export async function getDueWords(
       .from(words)
       .where(dueClause);
     return {
-      words: due,
+      words: withForms(due),
       dueRemaining: totalDue - due.length,
       aheadOfSchedule: false,
     };
@@ -94,7 +100,7 @@ export async function getDueWords(
     .orderBy(asc(words.nextReviewAt))
     .limit(SESSION_LIMIT);
 
-  return { words: ahead, dueRemaining: 0, aheadOfSchedule: true };
+  return { words: withForms(ahead), dueRemaining: 0, aheadOfSchedule: true };
 }
 
 export async function submitReview(

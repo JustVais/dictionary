@@ -37,6 +37,7 @@ export function ReviewCard({
           partOfSpeech={word.partOfSpeech}
           definition={word.definition}
           example={word.example}
+          forms={word.forms}
         />
       ) : (
         <h2 className="text-2xl font-semibold">{word.text}</h2>
