@@ -40,8 +40,8 @@ export function FolderList({ folders }: { folders: FolderWithCount[] }) {
 
   return (
     <div className="grid gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Vocabulary</h1>
+      <div className="flex items-center justify-between max-md:justify-end">
+        <h1 className="text-lg font-semibold max-md:hidden">Vocabulary</h1>
         <FolderDialog mode="create" />
       </div>
 

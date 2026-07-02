@@ -12,7 +12,7 @@ export default async function StatsPage() {
 
   return (
     <div className="grid gap-4">
-      <h1 className="text-lg font-semibold">Stats</h1>
+      <h1 className="text-lg font-semibold max-md:hidden">Stats</h1>
       <StreakCard streak={streak} />
       <DailyChart points={dailyTrend} />
       <FolderBreakdown rows={folderBreakdown} />

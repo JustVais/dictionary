@@ -31,7 +31,7 @@ export default async function CardsPage() {
 
   return (
     <div className="grid gap-4">
-      <h1 className="text-lg font-semibold">Cards</h1>
+      <h1 className="text-lg font-semibold max-md:hidden">Cards</h1>
 
       <Link href="/cards/session?mode=all">
         <Button className="w-full" size="lg">

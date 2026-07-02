@@ -39,7 +39,7 @@ export default async function VocabularyPage({
 
     return (
       <div className="grid gap-4">
-        <h1 className="text-lg font-semibold">Vocabulary</h1>
+        <h1 className="text-lg font-semibold max-md:hidden">Vocabulary</h1>
         <WordSearch initialQuery={query} />
         {results.length === 0 ? (
           <p className="text-sm text-muted-foreground">

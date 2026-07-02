@@ -66,7 +66,7 @@ export function LookupForm({
 
   return (
     <div className="grid gap-4">
-      <h1 className="text-lg font-semibold">Translate</h1>
+      <h1 className="text-lg font-semibold max-md:hidden">Translate</h1>
       <form onSubmit={handleSubmit} className="flex gap-2">
         <Input
           value={query}
@@ -101,6 +101,10 @@ export function LookupForm({
               <Select
                 value={folderId}
                 onValueChange={(value) => setFolderId(value ?? undefined)}
+                items={folders.map((folder) => ({
+                  value: folder.id,
+                  label: folder.name,
+                }))}
               >
                 <SelectTrigger className="flex-1">
                   <SelectValue placeholder="Choose a folder" />
