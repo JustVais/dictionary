@@ -167,9 +167,13 @@ const GRADE_VARIANTS: Record<
 export function ReviewSession({
   initialWords,
   aheadOfSchedule,
+  dueRemaining = 0,
+  continueHref,
 }: {
   initialWords: ReviewWord[];
   aheadOfSchedule: boolean;
+  dueRemaining?: number;
+  continueHref?: string;
 }) {
   const [state, dispatch] = useReducer(reducer, {
     queue: initialWords,
@@ -248,6 +252,8 @@ export function ReviewSession({
       <SessionSummary
         firstTryRemembered={state.correctFirstTry}
         totalCards={state.totalCards}
+        dueRemaining={dueRemaining}
+        continueHref={continueHref}
       />
     );
   }

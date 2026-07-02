@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { words, reviewLogs } from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
@@ -50,32 +50,51 @@ const wordColumns = {
   notRememberedCount: words.notRememberedCount,
 };
 
+// Due sessions are capped so a backlog doesn't become one endless session;
+// the summary offers to continue with the rest.
+const SESSION_LIMIT = 20;
+
 export async function getDueWords(
-  scope: { folderId: string } | { all: true }
-): Promise<{ words: ReviewWord[]; aheadOfSchedule: boolean }> {
+  scope: { folderId: string } | { all: true },
+  options: { ahead?: boolean } = {}
+): Promise<{ words: ReviewWord[]; dueRemaining: number; aheadOfSchedule: boolean }> {
   const user = await requireUser();
   const now = new Date();
   const scopeClause =
     "folderId" in scope
       ? and(eq(words.userId, user.id), eq(words.folderId, scope.folderId))
       : eq(words.userId, user.id);
+  const dueClause = and(scopeClause, lte(words.nextReviewAt, now));
 
   const due = await db
     .select(wordColumns)
     .from(words)
-    .where(and(scopeClause, lte(words.nextReviewAt, now)))
-    .orderBy(asc(words.nextReviewAt));
+    .where(dueClause)
+    .orderBy(asc(words.nextReviewAt))
+    .limit(SESSION_LIMIT);
 
-  if (due.length > 0) return { words: due, aheadOfSchedule: false };
+  if (due.length > 0) {
+    const [{ value: totalDue }] = await db
+      .select({ value: count() })
+      .from(words)
+      .where(dueClause);
+    return {
+      words: due,
+      dueRemaining: totalDue - due.length,
+      aheadOfSchedule: false,
+    };
+  }
+
+  if (!options.ahead) return { words: [], dueRemaining: 0, aheadOfSchedule: false };
 
   const ahead = await db
     .select(wordColumns)
     .from(words)
     .where(scopeClause)
     .orderBy(asc(words.nextReviewAt))
-    .limit(20);
+    .limit(SESSION_LIMIT);
 
-  return { words: ahead, aheadOfSchedule: true };
+  return { words: ahead, dueRemaining: 0, aheadOfSchedule: true };
 }
 
 export async function submitReview(

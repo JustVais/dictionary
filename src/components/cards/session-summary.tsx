@@ -5,9 +5,13 @@ import { Card } from "@/components/ui/card";
 export function SessionSummary({
   firstTryRemembered,
   totalCards,
+  dueRemaining = 0,
+  continueHref,
 }: {
   firstTryRemembered: number;
   totalCards: number;
+  dueRemaining?: number;
+  continueHref?: string;
 }) {
   return (
     <Card className="grid gap-4 p-6 text-center">
@@ -15,8 +19,17 @@ export function SessionSummary({
       <p className="text-muted-foreground">
         {firstTryRemembered}/{totalCards} remembered on first try
       </p>
+      {dueRemaining > 0 && continueHref && (
+        <Link href={continueHref}>
+          <Button className="w-full">
+            Review {dueRemaining} more due word{dueRemaining === 1 ? "" : "s"}
+          </Button>
+        </Link>
+      )}
       <Link href="/cards">
-        <Button className="w-full">Back to Cards</Button>
+        <Button variant="outline" className="w-full">
+          Back to Cards
+        </Button>
       </Link>
     </Card>
   );
