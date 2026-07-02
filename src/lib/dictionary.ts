@@ -1,13 +1,23 @@
 import "server-only";
 import type { DictionaryEntry } from "@/types/dictionary";
 
+export interface WordSense {
+  definition: string;
+  partOfSpeech?: string;
+  example?: string;
+}
+
 export interface WordDetails {
   word: string;
   definition?: string;
   partOfSpeech?: string;
   example?: string;
   phoneticText?: string;
+  /** Up to MAX_SENSES alternative senses; the first matches the primary fields. */
+  senses?: WordSense[];
 }
+
+const MAX_SENSES = 3;
 
 export type DictionaryLookupResult =
   | { ok: true; details: WordDetails }
@@ -18,15 +28,24 @@ type SourceResult =
   | { error: "not_found" | "network_error" };
 
 function extractFreeDictionary(entry: DictionaryEntry, word: string): WordDetails {
-  const meaning = entry.meanings[0];
-  const definition = meaning?.definitions[0];
+  const senses: WordSense[] = entry.meanings
+    .flatMap((meaning) =>
+      meaning.definitions.map((d) => ({
+        definition: d.definition,
+        partOfSpeech: meaning.partOfSpeech,
+        example: d.example,
+      }))
+    )
+    .slice(0, MAX_SENSES);
+  const primary = senses[0];
 
   return {
     word,
-    definition: definition?.definition,
-    partOfSpeech: meaning?.partOfSpeech,
-    example: definition?.example,
+    definition: primary?.definition,
+    partOfSpeech: primary?.partOfSpeech,
+    example: primary?.example,
     phoneticText: entry.phonetic ?? entry.phonetics.find((p) => p.text)?.text,
+    senses,
   };
 }
 
@@ -59,17 +78,23 @@ const DATAMUSE_POS_MAP: Record<string, string> = {
 };
 
 function extractDatamuse(entry: DatamuseEntry, word: string): WordDetails | null {
-  const first = entry.defs?.[0];
-  if (!first) return null;
-
-  const [posAbbr, ...rest] = first.split("\t");
-  const definition = rest.join("\t").trim();
-  if (!definition) return null;
+  const senses: WordSense[] = (entry.defs ?? [])
+    .map((def): WordSense | null => {
+      const [posAbbr, ...rest] = def.split("\t");
+      const definition = rest.join("\t").trim();
+      if (!definition) return null;
+      return { definition, partOfSpeech: DATAMUSE_POS_MAP[posAbbr] };
+    })
+    .filter((sense): sense is WordSense => sense !== null)
+    .slice(0, MAX_SENSES);
+  const primary = senses[0];
+  if (!primary) return null;
 
   return {
     word,
-    definition,
-    partOfSpeech: DATAMUSE_POS_MAP[posAbbr],
+    definition: primary.definition,
+    partOfSpeech: primary.partOfSpeech,
+    senses,
   };
 }
 

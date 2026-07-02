@@ -15,9 +15,9 @@ import {
 import { DefinitionView } from "./definition-view";
 import {
   lookupWordAction,
-  addLookedUpWordToFolder,
   type LookupActionResult,
 } from "@/app/(app)/translate/actions";
+import { addWordWithDetails } from "@/app/(app)/vocabulary/actions";
 
 type LookupSuccess = Extract<LookupActionResult, { ok: true }>;
 
@@ -51,8 +51,13 @@ export function LookupForm({
     if (!result || !folderId) return;
     startSaveTransition(async () => {
       try {
-        await addLookedUpWordToFolder(folderId, result.details);
+        const res = await addWordWithDetails(folderId, result.details);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(`Added "${result.details.word}" to folder.`);
+        if (res.warning) toast.info(res.warning);
       } catch {
         toast.error("Failed to add word.");
       }

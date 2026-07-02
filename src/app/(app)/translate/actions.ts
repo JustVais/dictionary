@@ -1,9 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { folders, words } from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
 import { lookupWord, type WordDetails } from "@/lib/dictionary";
 import { isRussian, translateRuToEn } from "@/lib/translate";
@@ -70,30 +66,4 @@ export async function lookupWordAction(
     forms: getWordForms(result.details.word, result.details.partOfSpeech),
     sourceWord,
   };
-}
-
-export async function addLookedUpWordToFolder(
-  folderId: string,
-  details: WordDetails
-) {
-  const user = await requireUser();
-
-  const [folder] = await db
-    .select()
-    .from(folders)
-    .where(and(eq(folders.id, folderId), eq(folders.userId, user.id)))
-    .limit(1);
-  if (!folder) throw new Error("Folder not found");
-
-  await db.insert(words).values({
-    userId: user.id,
-    folderId,
-    text: details.word,
-    definition: details.definition,
-    partOfSpeech: details.partOfSpeech,
-    example: details.example,
-    phoneticText: details.phoneticText,
-  });
-
-  revalidatePath(`/vocabulary/${folderId}`);
 }
