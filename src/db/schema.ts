@@ -15,6 +15,13 @@ export const reviewResultEnum = pgEnum("review_result", [
   "not_remembered",
 ]);
 
+export const reviewGradeEnum = pgEnum("review_grade", [
+  "again",
+  "hard",
+  "good",
+  "easy",
+]);
+
 export const users = pgTable("users", {
   id: uuid("id")
     .primaryKey()
@@ -62,17 +69,20 @@ export const words = pgTable(
     partOfSpeech: text("part_of_speech"),
     example: text("example"),
     phoneticText: text("phonetic_text"),
-    phoneticAudioUrl: text("phonetic_audio_url"),
     rememberedCount: integer("remembered_count").notNull().default(0),
     notRememberedCount: integer("not_remembered_count").notNull().default(0),
     nextReviewAt: timestamp("next_review_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    srsInterval: integer("srs_interval").notNull().default(0),
-    srsEase: real("srs_ease").notNull().default(2.5),
-    // Distinguishes "first successful review" from "reset-after-lapse" —
-    // both would otherwise land on srsInterval = 1.
-    srsRepetitions: integer("srs_repetitions").notNull().default(0),
+    // FSRS card state (ts-fsrs): stability/difficulty are the memory model,
+    // state is the ts-fsrs State enum (0 New, 1 Learning, 2 Review,
+    // 3 Relearning), learningSteps is the position within the
+    // (re)learning steps.
+    fsrsStability: real("fsrs_stability").notNull().default(0),
+    fsrsDifficulty: real("fsrs_difficulty").notNull().default(0),
+    fsrsState: integer("fsrs_state").notNull().default(0),
+    fsrsLearningSteps: integer("fsrs_learning_steps").notNull().default(0),
+    lastReviewedAt: timestamp("last_reviewed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -98,6 +108,8 @@ export const reviewLogs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     result: reviewResultEnum("result").notNull(),
+    // Exact FSRS grade; null on rows logged before the FSRS migration.
+    grade: reviewGradeEnum("grade"),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -1,10 +1,10 @@
 "use server";
 
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { words, reviewLogs } from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
-import { applySm2, type SrsGrade } from "@/lib/srs";
+import { applyFsrs, isRemembered, type SrsGrade } from "@/lib/srs";
 
 export interface ReviewWord {
   id: string;
@@ -13,10 +13,24 @@ export interface ReviewWord {
   partOfSpeech: string | null;
   example: string | null;
   phoneticText: string | null;
-  phoneticAudioUrl: string | null;
-  srsInterval: number;
-  srsEase: number;
-  srsRepetitions: number;
+  fsrsStability: number;
+  fsrsDifficulty: number;
+  fsrsState: number;
+  fsrsLearningSteps: number;
+  nextReviewAt: Date;
+  lastReviewedAt: Date | null;
+  rememberedCount: number;
+  notRememberedCount: number;
+}
+
+/** Snapshot of a word's scheduling state before a review, for undo. */
+export interface SrsSnapshot {
+  fsrsStability: number;
+  fsrsDifficulty: number;
+  fsrsState: number;
+  fsrsLearningSteps: number;
+  nextReviewAt: Date;
+  lastReviewedAt: Date | null;
 }
 
 const wordColumns = {
@@ -26,10 +40,14 @@ const wordColumns = {
   partOfSpeech: words.partOfSpeech,
   example: words.example,
   phoneticText: words.phoneticText,
-  phoneticAudioUrl: words.phoneticAudioUrl,
-  srsInterval: words.srsInterval,
-  srsEase: words.srsEase,
-  srsRepetitions: words.srsRepetitions,
+  fsrsStability: words.fsrsStability,
+  fsrsDifficulty: words.fsrsDifficulty,
+  fsrsState: words.fsrsState,
+  fsrsLearningSteps: words.fsrsLearningSteps,
+  nextReviewAt: words.nextReviewAt,
+  lastReviewedAt: words.lastReviewedAt,
+  rememberedCount: words.rememberedCount,
+  notRememberedCount: words.notRememberedCount,
 };
 
 export async function getDueWords(
@@ -63,8 +81,9 @@ export async function getDueWords(
 export async function submitReview(
   wordId: string,
   grade: SrsGrade
-): Promise<{ nextReviewAt: Date }> {
+): Promise<{ nextReviewAt: Date; previous: SrsSnapshot }> {
   const user = await requireUser();
+  const now = new Date();
 
   const [word] = await db
     .select()
@@ -73,36 +92,103 @@ export async function submitReview(
     .limit(1);
   if (!word) throw new Error("Word not found");
 
-  const update = applySm2(
+  const previous: SrsSnapshot = {
+    fsrsStability: word.fsrsStability,
+    fsrsDifficulty: word.fsrsDifficulty,
+    fsrsState: word.fsrsState,
+    fsrsLearningSteps: word.fsrsLearningSteps,
+    nextReviewAt: word.nextReviewAt,
+    lastReviewedAt: word.lastReviewedAt,
+  };
+
+  const update = applyFsrs(
     {
-      interval: word.srsInterval,
-      ease: word.srsEase,
-      repetitions: word.srsRepetitions,
+      stability: word.fsrsStability,
+      difficulty: word.fsrsDifficulty,
+      state: word.fsrsState,
+      learningSteps: word.fsrsLearningSteps,
+      due: word.nextReviewAt,
+      lastReviewedAt: word.lastReviewedAt,
+      reps: word.rememberedCount + word.notRememberedCount,
+      lapses: word.notRememberedCount,
     },
-    grade
+    grade,
+    now
   );
+
+  const remembered = isRemembered(grade);
 
   await db.transaction(async (tx) => {
     await tx
       .update(words)
       .set({
-        srsInterval: update.interval,
-        srsEase: update.ease,
-        srsRepetitions: update.repetitions,
+        fsrsStability: update.stability,
+        fsrsDifficulty: update.difficulty,
+        fsrsState: update.state,
+        fsrsLearningSteps: update.learningSteps,
         nextReviewAt: update.nextReviewAt,
-        rememberedCount:
-          grade === "remembered"
-            ? sql`${words.rememberedCount} + 1`
-            : words.rememberedCount,
-        notRememberedCount:
-          grade === "not_remembered"
-            ? sql`${words.notRememberedCount} + 1`
-            : words.notRememberedCount,
+        lastReviewedAt: now,
+        rememberedCount: remembered
+          ? sql`${words.rememberedCount} + 1`
+          : words.rememberedCount,
+        notRememberedCount: remembered
+          ? words.notRememberedCount
+          : sql`${words.notRememberedCount} + 1`,
       })
       .where(eq(words.id, wordId));
 
-    await tx.insert(reviewLogs).values({ wordId, userId: user.id, result: grade });
+    await tx.insert(reviewLogs).values({
+      wordId,
+      userId: user.id,
+      result: remembered ? "remembered" : "not_remembered",
+      grade,
+    });
   });
 
-  return { nextReviewAt: update.nextReviewAt };
+  return { nextReviewAt: update.nextReviewAt, previous };
+}
+
+export async function undoReview(
+  wordId: string,
+  grade: SrsGrade,
+  previous: SrsSnapshot
+): Promise<void> {
+  const user = await requireUser();
+
+  const [word] = await db
+    .select({ id: words.id })
+    .from(words)
+    .where(and(eq(words.id, wordId), eq(words.userId, user.id)))
+    .limit(1);
+  if (!word) throw new Error("Word not found");
+
+  const remembered = isRemembered(grade);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(words)
+      .set({
+        fsrsStability: previous.fsrsStability,
+        fsrsDifficulty: previous.fsrsDifficulty,
+        fsrsState: previous.fsrsState,
+        fsrsLearningSteps: previous.fsrsLearningSteps,
+        nextReviewAt: previous.nextReviewAt,
+        lastReviewedAt: previous.lastReviewedAt,
+        rememberedCount: remembered
+          ? sql`greatest(${words.rememberedCount} - 1, 0)`
+          : words.rememberedCount,
+        notRememberedCount: remembered
+          ? words.notRememberedCount
+          : sql`greatest(${words.notRememberedCount} - 1, 0)`,
+      })
+      .where(eq(words.id, wordId));
+
+    const [latest] = await tx
+      .select({ id: reviewLogs.id })
+      .from(reviewLogs)
+      .where(and(eq(reviewLogs.wordId, wordId), eq(reviewLogs.userId, user.id)))
+      .orderBy(desc(reviewLogs.reviewedAt))
+      .limit(1);
+    if (latest) await tx.delete(reviewLogs).where(eq(reviewLogs.id, latest.id));
+  });
 }

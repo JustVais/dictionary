@@ -49,7 +49,6 @@ export async function addLookedUpWordToFolder(
     partOfSpeech: details.partOfSpeech,
     example: details.example,
     phoneticText: details.phoneticText,
-    phoneticAudioUrl: details.phoneticAudioUrl,
   });
 
   revalidatePath(`/vocabulary/${folderId}`);

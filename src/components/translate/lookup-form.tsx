@@ -79,7 +79,6 @@ export function LookupForm({
           <DefinitionView
             word={result.word}
             phoneticText={result.phoneticText}
-            phoneticAudioUrl={result.phoneticAudioUrl}
             partOfSpeech={result.partOfSpeech}
             definition={result.definition}
             example={result.example}

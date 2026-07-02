@@ -66,7 +66,6 @@ export async function addWord(
     partOfSpeech: details.partOfSpeech,
     example: details.example,
     phoneticText: details.phoneticText,
-    phoneticAudioUrl: details.phoneticAudioUrl,
   });
 
   revalidatePath(`/vocabulary/${folderId}`);

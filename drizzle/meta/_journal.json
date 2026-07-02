@@ -8,6 +8,20 @@
       "when": 1782927471988,
       "tag": "0000_fair_domino",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782980072121,
+      "tag": "0001_fsrs_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782980102692,
+      "tag": "0002_drop_sm2_columns",
+      "breakpoints": true
     }
   ]
 }

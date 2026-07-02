@@ -7,7 +7,6 @@ export interface WordDetails {
   partOfSpeech?: string;
   example?: string;
   phoneticText?: string;
-  phoneticAudioUrl?: string;
 }
 
 export type DictionaryLookupResult =
@@ -21,7 +20,6 @@ type SourceResult =
 function extractFreeDictionary(entry: DictionaryEntry, word: string): WordDetails {
   const meaning = entry.meanings[0];
   const definition = meaning?.definitions[0];
-  const phoneticWithAudio = entry.phonetics.find((p) => p.audio);
 
   return {
     word,
@@ -29,7 +27,6 @@ function extractFreeDictionary(entry: DictionaryEntry, word: string): WordDetail
     partOfSpeech: meaning?.partOfSpeech,
     example: definition?.example,
     phoneticText: entry.phonetic ?? entry.phonetics.find((p) => p.text)?.text,
-    phoneticAudioUrl: phoneticWithAudio?.audio,
   };
 }
 

@@ -34,7 +34,6 @@ export function ReviewCard({
         <DefinitionView
           word={word.text}
           phoneticText={word.phoneticText}
-          phoneticAudioUrl={word.phoneticAudioUrl}
           partOfSpeech={word.partOfSpeech}
           definition={word.definition}
           example={word.example}
