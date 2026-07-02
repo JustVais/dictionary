@@ -1,36 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vocabulary
 
-## Getting Started
+A personal vocabulary-learning PWA: save English words into folders, review them as flashcards on an FSRS spaced-repetition schedule, look up definitions (with Russian → English translation), and track streaks and accuracy.
 
-First, run the development server:
+Built with Next.js (App Router), TypeScript, Tailwind CSS + shadcn/ui (Base UI), Drizzle ORM, Postgres, Auth.js, and Serwist. See `TECH_STACK.md` for the full stack rationale and `FUNCTIONALITY.md` for the behavior spec.
+
+## Sections
+
+- **Vocabulary** — folders of words with dictionary auto-fill (pick a sense, edit before saving), duplicate detection, inflected word forms, and search across all folders.
+- **Cards** — flashcard review with FSRS scheduling (Again/Hard/Good/Easy), intra-day learning steps, swipe gestures, keyboard shortcuts, undo, and per-folder due counts.
+- **Translate** — English or Russian input → English definition (MyMemory + Free Dictionary API/Datamuse), with "add to folder".
+- **Stats** — streak, 30-day review trend, per-folder accuracy, all in your local timezone.
+
+## Getting started
+
+Requirements: Node 20+, Docker (for the local Postgres).
 
 ```bash
+docker compose up -d          # local Postgres on port 5433
+cp .env.example .env.local    # then set AUTH_SECRET (openssl rand -base64 32)
+npm install
+npm run db:migrate            # apply Drizzle migrations
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000, sign up, and start adding words.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Script | What it does |
+|---|---|
+| `npm run dev` | Dev server |
+| `npm run build` | Runs migrations, then `next build --webpack` (Serwist needs webpack) |
+| `npm run lint` | ESLint |
+| `npm run db:generate` | Generate a migration from `src/db/schema.ts` changes |
+| `npm run db:migrate` | Apply migrations from `drizzle/` |
+| `npm run db:studio` | Drizzle Studio |
+| `node scripts/generate-icons.mjs` | Regenerate PWA icons |
 
-## Learn More
+## Deployment
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Intended target: Vercel + Neon Postgres (not yet set up). `DATABASE_URL` and `AUTH_SECRET` are the only required env vars.

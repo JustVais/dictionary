@@ -1,8 +1,22 @@
+import { cookies } from "next/headers";
 import { sql, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { reviewLogs, words, folders } from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
 import { computeStreak } from "@/lib/stats";
+
+/** User's IANA timezone from the cookie set by TimezoneSync; UTC fallback. */
+async function getUserTimezone(): Promise<string> {
+  const raw = (await cookies()).get("tz")?.value;
+  if (!raw) return "UTC";
+  const tz = decodeURIComponent(raw);
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+}
 
 export interface DailyTrendPoint {
   day: string;
@@ -12,8 +26,9 @@ export interface DailyTrendPoint {
 
 export async function getDailyTrend(): Promise<DailyTrendPoint[]> {
   const user = await requireUser();
+  const tz = await getUserTimezone();
   const rows = await db.execute<{ day: string; remembered: number; total: number }>(sql`
-    select to_char(date_trunc('day', reviewed_at), 'YYYY-MM-DD') as day,
+    select to_char(reviewed_at at time zone ${tz}, 'YYYY-MM-DD') as day,
            count(*) filter (where result = 'remembered')::int as remembered,
            count(*)::int as total
     from ${reviewLogs}
@@ -30,14 +45,19 @@ export async function getDailyTrend(): Promise<DailyTrendPoint[]> {
 
 export async function getStreak(): Promise<number> {
   const user = await requireUser();
+  const tz = await getUserTimezone();
   const rows = await db
     .selectDistinct({
-      day: sql<string>`date_trunc('day', ${reviewLogs.reviewedAt})`,
+      day: sql<string>`to_char(${reviewLogs.reviewedAt} at time zone ${tz}, 'YYYY-MM-DD')`,
     })
     .from(reviewLogs)
     .where(eq(reviewLogs.userId, user.id));
 
-  return computeStreak(rows.map((r) => new Date(r.day)));
+  // en-CA formats as YYYY-MM-DD.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(
+    new Date()
+  );
+  return computeStreak(rows.map((r) => r.day), today);
 }
 
 export interface FolderBreakdownRow {

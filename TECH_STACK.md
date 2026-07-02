@@ -24,7 +24,8 @@ A vocabulary-learning app (word lists, flashcards, spaced repetition) built as a
 
 ## Vocabulary-App-Specific Notes
 
-- **Spaced repetition**: implement SM-2 (or a simplified Leitner system) for review scheduling. Keep the algorithm as a pure TS function so it's easily unit-tested and reusable client/server side.
+- **Spaced repetition**: **FSRS** via the `ts-fsrs` package (replaced the original SM-2 in v2) — 4 grades, intra-day learning steps, interval fuzz. Wrapped in pure functions in `src/lib/srs.ts` so it's unit-testable and usable client-side (button interval previews) and server-side (scheduling).
+- **Translation & word forms**: Russian input is translated ru→en via MyMemory (free, no key) in `src/lib/translate.ts`; inflected word forms are generated locally with `compromise` in `src/lib/word-forms.ts`.
 - **Offline support**: cache the user's active word deck and review queue in IndexedDB (via `idb` library) so reviews work offline; sync back to Postgres via a background sync / on-reconnect mutation.
 - **PWA installability**: requires a `manifest.json` (icons, theme color, `display: standalone`) and HTTPS (Vercel gives you this by default).
 - **Migrations**: use `drizzle-kit` for schema migrations; run against Neon's pooled connection string in production, direct connection for migrations.
@@ -80,8 +81,8 @@ src/
     (auth)/login, signup     # bare layout, no nav
     (app)/vocabulary, cards, translate, stats   # AppShell layout, auth-gated
 drizzle/                  # generated SQL migrations
-public/icons/             # PWA icons (currently placeholders — swap before shipping)
+public/icons/             # PWA icons (regenerate with `node scripts/generate-icons.mjs`)
 ```
 
-## v1 Build Status
-All 4 sections (Vocabulary, Cards with SM-2 spaced repetition, Translate, Stats), login/password auth, the responsive shell, and PWA/Serwist support are implemented — see `FUNCTIONALITY.md` for the full behavior spec. Deployment to Vercel + Neon has not been done yet; local development runs against the Docker Postgres container described above.
+## Build Status
+All 4 sections (Vocabulary, Cards with FSRS spaced repetition, Translate with Russian input, Stats), login/password auth, the responsive shell, dark mode, and PWA/Serwist support are implemented — see `FUNCTIONALITY.md` for the full behavior spec. Deployment to Vercel + Neon has not been done yet; local development runs against the Docker Postgres container described above.
