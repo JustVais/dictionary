@@ -1,17 +1,36 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { toast } from "sonner";
 import { Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ReviewCard } from "./review-card";
+import { ReviewCard, CARD_STAGES, STAGE_COUNT } from "./review-card";
 import { SessionSummary } from "./session-summary";
 import {
-  submitReview,
+  syncReview,
   undoReview,
   type ReviewWord,
   type SrsSnapshot,
 } from "@/app/(app)/cards/actions";
+import {
+  deleteOutbox,
+  enqueueOutbox,
+  getOutbox,
+  listOutbox,
+  loadQueue,
+  outboxCount,
+  outboxWordIds,
+  saveQueue,
+  type OutboxEntry,
+} from "@/lib/offline-store";
 import {
   applyFsrs,
   formatInterval,
@@ -43,8 +62,10 @@ interface LastAnswer {
   grade: SrsGrade;
   wasFirstAnswer: boolean;
   requeued: boolean;
-  // Server's pre-review snapshot; null until submitReview confirms.
-  previous: SrsSnapshot | null;
+  // Pre-review scheduling snapshot, derived client-side for offline undo.
+  previous: SrsSnapshot;
+  // The outcome persisted to the offline outbox and synced to the server.
+  entry: OutboxEntry;
 }
 
 interface SessionState {
@@ -56,9 +77,10 @@ interface SessionState {
 }
 
 type Action =
-  | { type: "ANSWER"; grade: SrsGrade }
-  | { type: "CONFIRM"; wordId: string; previous: SrsSnapshot }
-  | { type: "UNDO" };
+  | { type: "ANSWER"; grade: SrsGrade; now: Date; reviewId: string }
+  | { type: "UNDO" }
+  | { type: "LOAD"; words: ReviewWord[] }
+  | { type: "DROP"; ids: Set<string> };
 
 function reducer(state: SessionState, action: Action): SessionState {
   switch (action.type) {
@@ -66,11 +88,15 @@ function reducer(state: SessionState, action: Action): SessionState {
       const [current, ...rest] = state.queue;
       if (!current) return state;
 
-      const now = new Date();
+      const now = action.now;
       const update = applyFsrs(toCardState(current), action.grade, now);
       const remembered = isRemembered(action.grade);
       const requeued =
         update.nextReviewAt.getTime() - now.getTime() < REQUEUE_WINDOW_MS;
+
+      const rememberedCount = current.rememberedCount + (remembered ? 1 : 0);
+      const notRememberedCount =
+        current.notRememberedCount + (remembered ? 0 : 1);
 
       let queue = rest;
       if (requeued) {
@@ -82,8 +108,8 @@ function reducer(state: SessionState, action: Action): SessionState {
           fsrsLearningSteps: update.learningSteps,
           nextReviewAt: update.nextReviewAt,
           lastReviewedAt: now,
-          rememberedCount: current.rememberedCount + (remembered ? 1 : 0),
-          notRememberedCount: current.notRememberedCount + (remembered ? 0 : 1),
+          rememberedCount,
+          notRememberedCount,
         };
         const insertAt = Math.min(rest.length, 3 + Math.floor(Math.random() * 3));
         queue = [...rest.slice(0, insertAt), updated, ...rest.slice(insertAt)];
@@ -92,6 +118,22 @@ function reducer(state: SessionState, action: Action): SessionState {
       const wasFirstAnswer = !state.answeredIds.has(current.id);
       const answeredIds = new Set(state.answeredIds);
       answeredIds.add(current.id);
+
+      const entry: OutboxEntry = {
+        reviewId: action.reviewId,
+        wordId: current.id,
+        grade: action.grade,
+        reviewedAt: now.toISOString(),
+        resulting: {
+          fsrsStability: update.stability,
+          fsrsDifficulty: update.difficulty,
+          fsrsState: update.state,
+          fsrsLearningSteps: update.learningSteps,
+          nextReviewAt: update.nextReviewAt.toISOString(),
+          rememberedCount,
+          notRememberedCount,
+        },
+      };
 
       return {
         ...state,
@@ -104,15 +146,17 @@ function reducer(state: SessionState, action: Action): SessionState {
           grade: action.grade,
           wasFirstAnswer,
           requeued,
-          previous: null,
+          previous: {
+            fsrsStability: current.fsrsStability,
+            fsrsDifficulty: current.fsrsDifficulty,
+            fsrsState: current.fsrsState,
+            fsrsLearningSteps: current.fsrsLearningSteps,
+            nextReviewAt: current.nextReviewAt,
+            lastReviewedAt: current.lastReviewedAt,
+          },
+          entry,
         },
       };
-    }
-
-    case "CONFIRM": {
-      const la = state.lastAnswer;
-      if (!la || la.word.id !== action.wordId || la.previous) return state;
-      return { ...state, lastAnswer: { ...la, previous: action.previous } };
     }
 
     case "UNDO": {
@@ -133,6 +177,25 @@ function reducer(state: SessionState, action: Action): SessionState {
           state.correctFirstTry -
           (la.wasFirstAnswer && isRemembered(la.grade) ? 1 : 0),
         lastAnswer: null,
+      };
+    }
+
+    case "LOAD":
+      return {
+        queue: action.words,
+        answeredIds: new Set<string>(),
+        correctFirstTry: 0,
+        totalCards: action.words.length,
+        lastAnswer: null,
+      };
+
+    case "DROP": {
+      const removed = state.queue.filter((w) => action.ids.has(w.id)).length;
+      if (removed === 0) return state;
+      return {
+        ...state,
+        queue: state.queue.filter((w) => !action.ids.has(w.id)),
+        totalCards: Math.max(0, state.totalCards - removed),
       };
     }
   }
@@ -166,11 +229,13 @@ const GRADE_VARIANTS: Record<
 
 export function ReviewSession({
   initialWords,
+  scopeId,
   aheadOfSchedule,
   dueRemaining = 0,
   continueHref,
 }: {
   initialWords: ReviewWord[];
+  scopeId: string;
   aheadOfSchedule: boolean;
   dueRemaining?: number;
   continueHref?: string;
@@ -182,10 +247,83 @@ export function ReviewSession({
     totalCards: initialWords.length,
     lastAnswer: null,
   });
-  const [flipped, setFlipped] = useState(false);
+  const [stage, setStage] = useState(0);
+  const [online, setOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
   const [, startTransition] = useTransition();
+  // reviewIds already written to the outbox, so the enqueue effect fires once.
+  const enqueuedRef = useRef<Set<string>>(new Set());
 
+  const revealed = stage > CARD_STAGES.WORD;
   const current = state.queue[0];
+
+  // Push queued outcomes to the server, oldest first; stop on the first
+  // failure (likely back offline) and leave the rest for the next attempt.
+  const flushOutbox = useCallback(async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setPendingCount(await outboxCount());
+      return;
+    }
+    const entries = await listOutbox();
+    for (const entry of entries) {
+      try {
+        await syncReview(entry);
+        await deleteOutbox(entry.reviewId);
+      } catch {
+        break;
+      }
+    }
+    setPendingCount(await outboxCount());
+  }, []);
+
+  // Bootstrap: flush leftovers, reconcile already-answered cards, and either
+  // cache the server queue (online) or restore it from cache (offline).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setOnline(navigator.onLine);
+      await flushOutbox();
+      const pendingIds = await outboxWordIds();
+      if (cancelled) return;
+      if (pendingIds.size) dispatch({ type: "DROP", ids: pendingIds });
+      if (initialWords.length) {
+        saveQueue(scopeId, initialWords);
+      } else {
+        const cached = await loadQueue(scopeId);
+        if (!cancelled && cached?.length) {
+          dispatch({
+            type: "LOAD",
+            words: cached.filter((w) => !pendingIds.has(w.id)),
+          });
+        }
+      }
+    })();
+
+    const onOnline = () => {
+      setOnline(true);
+      flushOutbox();
+    };
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist each new answer to the outbox, then try to sync immediately.
+  useEffect(() => {
+    const la = state.lastAnswer;
+    if (!la || enqueuedRef.current.has(la.entry.reviewId)) return;
+    enqueuedRef.current.add(la.entry.reviewId);
+    (async () => {
+      await enqueueOutbox(la.entry);
+      await flushOutbox();
+    })();
+  }, [state.lastAnswer, flushOutbox]);
 
   // Fixed `now` per card so the fuzzed interval previews don't shift between
   // renders (the fuzz seed includes the review time).
@@ -196,29 +334,27 @@ export function ReviewSession({
   );
 
   function handleAnswer(grade: SrsGrade) {
-    if (!current || !flipped) return;
-    const wordId = current.id;
-    dispatch({ type: "ANSWER", grade });
-    setFlipped(false);
-    startTransition(async () => {
-      try {
-        const { previous } = await submitReview(wordId, grade);
-        dispatch({ type: "CONFIRM", wordId, previous });
-      } catch {
-        toast.error("Failed to save your answer.");
-      }
-    });
+    if (!current || !revealed) return;
+    dispatch({ type: "ANSWER", grade, now: new Date(), reviewId: crypto.randomUUID() });
+    setStage(CARD_STAGES.WORD);
   }
 
   function handleUndo() {
     const la = state.lastAnswer;
-    if (!la?.previous) return;
-    const { word, grade, previous } = la;
+    if (!la) return;
+    const { word, grade, previous, entry } = la;
     dispatch({ type: "UNDO" });
-    setFlipped(false);
+    setStage(CARD_STAGES.WORD);
+    enqueuedRef.current.delete(entry.reviewId);
     startTransition(async () => {
       try {
-        await undoReview(word.id, grade, previous);
+        const pending = await getOutbox(entry.reviewId);
+        if (pending) {
+          await deleteOutbox(entry.reviewId); // never reached the server
+        } else if (navigator.onLine) {
+          await undoReview(word.id, grade, previous); // reverse a synced review
+        }
+        setPendingCount(await outboxCount());
       } catch {
         toast.error("Failed to undo.");
       }
@@ -234,11 +370,11 @@ export function ReviewSession({
       }
       if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
-        setFlipped((f) => !f);
+        setStage((s) => (s + 1) % STAGE_COUNT);
         return;
       }
       const grade = GRADE_KEYS[e.key];
-      if (grade && flipped) {
+      if (grade && revealed) {
         e.preventDefault();
         handleAnswer(grade);
       }
@@ -265,17 +401,22 @@ export function ReviewSession({
           Nothing due right now — reviewing ahead of schedule.
         </p>
       )}
-      <div className="flex items-center justify-center gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
         <p className="text-center text-sm text-muted-foreground">
           {state.queue.length} card{state.queue.length === 1 ? "" : "s"} left
         </p>
+        {!online && (
+          <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            Offline
+          </span>
+        )}
+        {pendingCount > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {pendingCount} pending sync
+          </span>
+        )}
         {state.lastAnswer && (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!state.lastAnswer.previous}
-            onClick={handleUndo}
-          >
+          <Button variant="ghost" size="sm" onClick={handleUndo}>
             <Undo2 className="size-4" />
             Undo
           </Button>
@@ -283,12 +424,10 @@ export function ReviewSession({
       </div>
       <ReviewCard
         word={current}
-        flipped={flipped}
-        onToggleFlip={() => setFlipped((f) => !f)}
-        onSwipeLeft={() => handleAnswer("again")}
-        onSwipeRight={() => handleAnswer("good")}
+        stage={stage}
+        onCycle={() => setStage((s) => (s + 1) % STAGE_COUNT)}
       />
-      {flipped ? (
+      {revealed ? (
         <div className="grid grid-cols-4 gap-2">
           {(Object.keys(GRADE_LABELS) as SrsGrade[]).map((grade) => (
             <Button
@@ -305,7 +444,10 @@ export function ReviewSession({
           ))}
         </div>
       ) : (
-        <Button variant="outline" onClick={() => setFlipped(true)}>
+        <Button
+          variant="outline"
+          onClick={() => setStage(CARD_STAGES.DEFINITION)}
+        >
           Show answer
         </Button>
       )}

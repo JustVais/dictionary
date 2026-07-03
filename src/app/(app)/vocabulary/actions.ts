@@ -73,8 +73,9 @@ export async function addWordWithDetails(
   const text = parsedText.data;
   const definition = longTextSchema.safeParse(details.definition ?? "");
   const example = longTextSchema.safeParse(details.example ?? "");
-  if (!definition.success || !example.success) {
-    return { ok: false, error: "Definition or example is too long" };
+  const translation = longTextSchema.safeParse(details.translation ?? "");
+  if (!definition.success || !example.success || !translation.success) {
+    return { ok: false, error: "Definition, example, or translation is too long" };
   }
 
   const [folder] = await db
@@ -102,6 +103,7 @@ export async function addWordWithDetails(
     userId: user.id,
     folderId,
     text,
+    translation: translation.data || null,
     definition: definition.data || null,
     partOfSpeech: details.partOfSpeech,
     example: example.data || null,

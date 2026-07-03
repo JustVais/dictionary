@@ -6,10 +6,35 @@ import { words, reviewLogs } from "@/db/schema";
 import { requireUser } from "@/lib/auth-guard";
 import { applyFsrs, isRemembered, type SrsGrade } from "@/lib/srs";
 import { getWordForms } from "@/lib/word-forms";
+import { translateEnToRu } from "@/lib/translate";
+
+/**
+ * Best-effort en→ru backfill for cards missing a Russian translation, so the
+ * review card's Russian stage (and its offline cache) has data. Runs in
+ * parallel and persists results; failures leave the field null and never block.
+ */
+async function backfillTranslations<
+  T extends { id: string; text: string; translation: string | null }
+>(rows: T[]): Promise<T[]> {
+  const missing = rows.filter((r) => !r.translation);
+  await Promise.all(
+    missing.map(async (row) => {
+      const res = await translateEnToRu(row.text);
+      if (!res.ok) return;
+      row.translation = res.translated;
+      await db
+        .update(words)
+        .set({ translation: res.translated })
+        .where(eq(words.id, row.id));
+    })
+  );
+  return rows;
+}
 
 export interface ReviewWord {
   id: string;
   text: string;
+  translation: string | null;
   definition: string | null;
   partOfSpeech: string | null;
   example: string | null;
@@ -38,6 +63,7 @@ export interface SrsSnapshot {
 const wordColumns = {
   id: words.id,
   text: words.text,
+  translation: words.translation,
   definition: words.definition,
   partOfSpeech: words.partOfSpeech,
   example: words.example,
@@ -85,7 +111,7 @@ export async function getDueWords(
       .from(words)
       .where(dueClause);
     return {
-      words: withForms(due),
+      words: withForms(await backfillTranslations(due)),
       dueRemaining: totalDue - due.length,
       aheadOfSchedule: false,
     };
@@ -100,7 +126,101 @@ export async function getDueWords(
     .orderBy(asc(words.nextReviewAt))
     .limit(SESSION_LIMIT);
 
-  return { words: withForms(ahead), dueRemaining: 0, aheadOfSchedule: true };
+  return {
+    words: withForms(await backfillTranslations(ahead)),
+    dueRemaining: 0,
+    aheadOfSchedule: true,
+  };
+}
+
+/**
+ * Online fallback for the card's Russian stage when a word still has no stored
+ * translation (e.g. reached before getDueWords backfilled it). Returns the
+ * stored translation or lazily fetches, persists, and returns it.
+ */
+export async function translateWordForReview(
+  wordId: string
+): Promise<string | null> {
+  const user = await requireUser();
+  const [word] = await db
+    .select({ id: words.id, text: words.text, translation: words.translation })
+    .from(words)
+    .where(and(eq(words.id, wordId), eq(words.userId, user.id)))
+    .limit(1);
+  if (!word) return null;
+  if (word.translation) return word.translation;
+
+  const res = await translateEnToRu(word.text);
+  if (!res.ok) return null;
+  await db
+    .update(words)
+    .set({ translation: res.translated })
+    .where(eq(words.id, wordId));
+  return res.translated;
+}
+
+/** A review outcome computed offline, flushed from the client outbox. */
+export interface ReviewOutcome {
+  reviewId: string;
+  wordId: string;
+  grade: SrsGrade;
+  reviewedAt: string; // ISO
+  resulting: {
+    fsrsStability: number;
+    fsrsDifficulty: number;
+    fsrsState: number;
+    fsrsLearningSteps: number;
+    nextReviewAt: string; // ISO
+    rememberedCount: number;
+    notRememberedCount: number;
+  };
+}
+
+/**
+ * Apply a client-computed review outcome. Absolute state + a unique clientId
+ * (onConflictDoNothing) make this idempotent, so re-flushing the outbox — or
+ * flushing outcomes out of order — is safe. Flushing in reviewedAt order lets
+ * the last outcome win for a card reviewed multiple times offline.
+ */
+export async function syncReview(outcome: ReviewOutcome): Promise<void> {
+  const user = await requireUser();
+  const [word] = await db
+    .select({ id: words.id })
+    .from(words)
+    .where(and(eq(words.id, outcome.wordId), eq(words.userId, user.id)))
+    .limit(1);
+  if (!word) return; // word was deleted; drop the outcome silently
+
+  const { resulting } = outcome;
+  const reviewedAt = new Date(outcome.reviewedAt);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(words)
+      .set({
+        fsrsStability: resulting.fsrsStability,
+        fsrsDifficulty: resulting.fsrsDifficulty,
+        fsrsState: resulting.fsrsState,
+        fsrsLearningSteps: resulting.fsrsLearningSteps,
+        nextReviewAt: new Date(resulting.nextReviewAt),
+        lastReviewedAt: reviewedAt,
+        rememberedCount: resulting.rememberedCount,
+        notRememberedCount: resulting.notRememberedCount,
+      })
+      .where(eq(words.id, outcome.wordId));
+
+    await tx
+      .insert(reviewLogs)
+      .values({
+        wordId: outcome.wordId,
+        userId: user.id,
+        result: isRemembered(outcome.grade) ? "remembered" : "not_remembered",
+        grade: outcome.grade,
+        reviewedAt,
+        clientId: outcome.reviewId,
+      })
+      .onConflictDoNothing({ target: reviewLogs.clientId });
+  });
 }
 
 export async function submitReview(

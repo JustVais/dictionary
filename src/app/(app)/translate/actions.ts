@@ -46,7 +46,7 @@ export async function lookupWordAction(
     if (sourceWord && result.reason === "not_found") {
       return {
         ok: true,
-        details: { word: query },
+        details: { word: query, translation: sourceWord },
         forms: getWordForms(query),
         sourceWord,
       };
@@ -62,7 +62,7 @@ export async function lookupWordAction(
 
   return {
     ok: true,
-    details: result.details,
+    details: { ...result.details, translation: sourceWord ?? result.details.translation },
     forms: getWordForms(result.details.word, result.details.partOfSpeech),
     sourceWord,
   };

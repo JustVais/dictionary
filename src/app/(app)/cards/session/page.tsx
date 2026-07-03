@@ -15,6 +15,7 @@ export default async function ReviewSessionPage({
   if (!folderId && mode !== "all") notFound();
 
   const scope = mode === "all" ? ({ all: true } as const) : { folderId: folderId! };
+  const scopeId = mode === "all" ? "all" : folderId!;
   const { words, dueRemaining, aheadOfSchedule } = await getDueWords(scope, {
     ahead: ahead === "1",
   });
@@ -49,6 +50,7 @@ export default async function ReviewSessionPage({
   return (
     <ReviewSession
       initialWords={words}
+      scopeId={scopeId}
       aheadOfSchedule={aheadOfSchedule}
       dueRemaining={dueRemaining}
       continueHref={`/cards/session?${baseQuery}`}

@@ -22,6 +22,13 @@
       "when": 1782980102692,
       "tag": "0002_drop_sm2_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783091673932,
+      "tag": "0003_thick_magdalene",
+      "breakpoints": true
     }
   ]
 }

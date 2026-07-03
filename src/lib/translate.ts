@@ -13,11 +13,15 @@ interface MyMemoryResponse {
   responseData?: { translatedText?: string };
 }
 
-/** Russian → English via MyMemory (free, no API key). */
-export async function translateRuToEn(text: string): Promise<TranslateResult> {
+/** Translate via MyMemory (free, no API key). */
+async function mymemory(
+  text: string,
+  from: string,
+  to: string
+): Promise<TranslateResult> {
   try {
     const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ru|en`,
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`,
       { cache: "no-store" }
     );
     if (!res.ok) return { ok: false, reason: "network_error" };
@@ -30,4 +34,14 @@ export async function translateRuToEn(text: string): Promise<TranslateResult> {
   } catch {
     return { ok: false, reason: "network_error" };
   }
+}
+
+/** Russian → English. */
+export function translateRuToEn(text: string): Promise<TranslateResult> {
+  return mymemory(text, "ru", "en");
+}
+
+/** English → Russian (used to backfill card translations). */
+export function translateEnToRu(text: string): Promise<TranslateResult> {
+  return mymemory(text, "en", "ru");
 }

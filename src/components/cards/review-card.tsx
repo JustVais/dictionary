@@ -1,36 +1,61 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { DefinitionView } from "@/components/translate/definition-view";
-import { useSwipe } from "@/hooks/use-swipe";
-import type { ReviewWord } from "@/app/(app)/cards/actions";
+import {
+  translateWordForReview,
+  type ReviewWord,
+} from "@/app/(app)/cards/actions";
+
+/** Tap cycles through these stages: word → English definition → Russian. */
+export const CARD_STAGES = { WORD: 0, DEFINITION: 1, RUSSIAN: 2 } as const;
+export const STAGE_COUNT = 3;
 
 export function ReviewCard({
   word,
-  flipped,
-  onToggleFlip,
-  onSwipeLeft,
-  onSwipeRight,
+  stage,
+  onCycle,
 }: {
   word: ReviewWord;
-  flipped: boolean;
-  onToggleFlip: () => void;
-  onSwipeLeft: () => void;
-  onSwipeRight: () => void;
+  stage: number;
+  onCycle: () => void;
 }) {
-  const { handlers, style } = useSwipe({
-    onSwipeLeft,
-    onSwipeRight,
-    onTap: onToggleFlip,
-  });
+  // Cache on-demand translations by word id, for cards missing a stored one.
+  const [fetched, setFetched] = useState<Record<string, string>>({});
+  const [translating, setTranslating] = useState(false);
+  const russian = word.translation ?? fetched[word.id] ?? null;
+
+  useEffect(() => {
+    if (stage !== CARD_STAGES.RUSSIAN || russian) return;
+    let cancelled = false;
+    (async () => {
+      setTranslating(true);
+      try {
+        const t = await translateWordForReview(word.id);
+        if (!cancelled && t) setFetched((m) => ({ ...m, [word.id]: t }));
+      } catch {
+        /* leave unresolved; the card shows the offline fallback */
+      } finally {
+        if (!cancelled) setTranslating(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, word.id]);
 
   return (
     <Card
-      {...handlers}
-      style={style}
-      className="flex min-h-56 cursor-pointer touch-none select-none items-center justify-center p-6 text-center"
+      onClick={onCycle}
+      className="flex min-h-56 cursor-pointer select-none items-center justify-center p-6 text-center"
     >
-      {flipped ? (
+      {stage === CARD_STAGES.WORD && (
+        <h2 className="text-2xl font-semibold">{word.text}</h2>
+      )}
+
+      {stage === CARD_STAGES.DEFINITION && (
         <DefinitionView
           word={word.text}
           phoneticText={word.phoneticText}
@@ -39,8 +64,21 @@ export function ReviewCard({
           example={word.example}
           forms={word.forms}
         />
-      ) : (
-        <h2 className="text-2xl font-semibold">{word.text}</h2>
+      )}
+
+      {stage === CARD_STAGES.RUSSIAN && (
+        <div className="grid gap-2">
+          <h2 className="text-xl font-semibold">{word.text}</h2>
+          {russian ? (
+            <p className="text-2xl font-medium">{russian}</p>
+          ) : translating ? (
+            <p className="text-sm text-muted-foreground">Translating…</p>
+          ) : (
+            <p className="text-sm italic text-muted-foreground">
+              Translation unavailable offline.
+            </p>
+          )}
+        </div>
       )}
     </Card>
   );

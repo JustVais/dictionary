@@ -8,6 +8,7 @@ import {
   timestamp,
   pgEnum,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const reviewResultEnum = pgEnum("review_result", [
@@ -65,6 +66,9 @@ export const words = pgTable(
       .notNull()
       .references(() => folders.id, { onDelete: "cascade" }),
     text: text("text").notNull(),
+    // Native-language (Russian) translation, shown as the third card stage.
+    // Populated from Russian Translate input or lazily backfilled en→ru.
+    translation: text("translation"),
     definition: text("definition"),
     partOfSpeech: text("part_of_speech"),
     example: text("example"),
@@ -113,10 +117,14 @@ export const reviewLogs = pgTable(
     reviewedAt: timestamp("reviewed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Client-generated id for offline review sync: makes flushing the outbox
+    // idempotent (unique → duplicate flushes are no-ops). Null for online reviews.
+    clientId: uuid("client_id"),
   },
   (t) => [
     index("review_logs_user_reviewed_idx").on(t.userId, t.reviewedAt),
     index("review_logs_word_id_idx").on(t.wordId),
+    uniqueIndex("review_logs_client_id_idx").on(t.clientId),
   ]
 );
 
