@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 import withSerwistInit from "@serwist/next";
 
+// Unique per build so the precached /offline document is re-fetched on each
+// deploy (see manifestTransforms below).
+const OFFLINE_REVISION = Date.now().toString(36);
+
 const withSerwist = withSerwistInit({
   swSrc: "src/sw.ts",
   swDest: "public/sw.js",
@@ -8,6 +12,19 @@ const withSerwist = withSerwistInit({
   // defaults to in Next 16. Only production builds (`next build --webpack`)
   // need the real service worker, so skip Serwist entirely in dev.
   disable: process.env.NODE_ENV !== "production",
+  // @serwist/next only precaches webpack client assets + public/ files, never
+  // rendered HTML. The /offline document fallback (referenced in src/sw.ts) must
+  // itself be precached for the fallback to resolve, so inject it here. A
+  // per-build revision refreshes it on every deploy, keeping it in step with the
+  // hashed chunks it references (a fixed revision would serve stale HTML).
+  manifestTransforms: [
+    (entries) => ({
+      manifest: [
+        ...entries,
+        { url: "/offline", revision: OFFLINE_REVISION, size: 0 },
+      ],
+    }),
+  ],
 });
 
 const nextConfig: NextConfig = {

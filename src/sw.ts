@@ -16,6 +16,17 @@ const serwist = new Serwist({
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: defaultCache,
+  // When a navigation can't reach the network (offline cold-launch of the
+  // installed app), serve the precached /offline shell instead of the browser
+  // error page. /offline restores the cached review queue from IndexedDB.
+  fallbacks: {
+    entries: [
+      {
+        url: "/offline",
+        matcher: ({ request }) => request.destination === "document",
+      },
+    ],
+  },
 });
 
 serwist.addEventListeners();

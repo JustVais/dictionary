@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Vocabulary",
     short_name: "Vocab",
     description: "Vocabulary learning with spaced repetition",
-    start_url: "/",
+    start_url: "/cards",
     display: "standalone",
     background_color: "#ffffff",
     theme_color: "#0f172a",
